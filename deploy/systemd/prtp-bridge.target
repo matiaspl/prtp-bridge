@@ -1,0 +1,8 @@
+[Unit]
+Description=PRTP bridges for all matrix NET ports
+After=network-online.target prtp-matrix-helper.service
+Wants=network-online.target prtp-matrix-helper.service
+Wants=prtp-bridge@NET0.service prtp-bridge@NET1.service prtp-bridge@NET2.service prtp-bridge@NET3.service
+
+[Install]
+WantedBy=multi-user.target

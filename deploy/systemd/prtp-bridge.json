@@ -1,0 +1,79 @@
+{
+  "listen": "0.0.0.0:8090",
+  "udp": {
+    "bind": "192.168.7.113:8087",
+    "peer": "192.168.7.200:8087",
+    "rate": 8333,
+    "rx_reorder_ms": 0
+  },
+  "websocket_paths": {
+    "control": "/control",
+    "audio": "/audio-stream"
+  },
+  "audio": {
+    "source": "ws",
+    "local_playback": false,
+    "local_capture": false,
+    "local_rate": 16000,
+    "tone_freq": 1000,
+    "fir_filter": false,
+    "capture_id": "default",
+    "playback_id": "default"
+  },
+  "matrix_helper_socket": "/run/kroma/prtp-matrix-helper.sock",
+  "matrix_addr": "192.168.7.199:2222",
+  "matrix_port": "NET0",
+  "g711": {
+    "mode": "custom",
+    "table": "",
+    "tx_map": ""
+  },
+  "tls": {
+    "cert": "/etc/kroma/tls/prtp.crt",
+    "key": "/etc/kroma/tls/prtp.key"
+  },
+  "emulation": {
+    "device": "auto",
+    "keys": 0,
+    "user_version": "1.03.000",
+    "fpga_version": "0.0"
+  },
+  "debug": {
+    "prtp": false,
+    "matrix": false
+  },
+  "instances": {
+    "NET0": {
+      "listen": "0.0.0.0:8090",
+      "udp": {
+        "bind": "192.168.7.113:8087",
+        "peer": "192.168.7.200:8087"
+      },
+      "matrix_port": "NET0"
+    },
+    "NET1": {
+      "listen": "0.0.0.0:8091",
+      "udp": {
+        "bind": "192.168.7.113:8088",
+        "peer": "192.168.7.201:8087"
+      },
+      "matrix_port": "NET1"
+    },
+    "NET2": {
+      "listen": "0.0.0.0:8092",
+      "udp": {
+        "bind": "192.168.7.113:8089",
+        "peer": "192.168.7.202:8087"
+      },
+      "matrix_port": "NET2"
+    },
+    "NET3": {
+      "listen": "0.0.0.0:8093",
+      "udp": {
+        "bind": "192.168.7.113:8090",
+        "peer": "192.168.7.203:8087"
+      },
+      "matrix_port": "NET3"
+    }
+  }
+}

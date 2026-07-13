@@ -1,0 +1,21 @@
+[Unit]
+Description=PRTP bridge for matrix %i
+Documentation=file:/opt/kroma/PRTP_BRIDGE.md
+After=network-online.target prtp-matrix-helper.service
+Wants=network-online.target prtp-matrix-helper.service
+PartOf=prtp-bridge.target
+
+[Service]
+Type=simple
+User=@@SERVICE_USER@@
+Group=@@SERVICE_USER@@
+WorkingDirectory=/opt/kroma
+ExecStart=/opt/kroma/prtp-bridge serve -config /etc/kroma/prtp-bridge.json --instance %i
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=prtp-bridge.target

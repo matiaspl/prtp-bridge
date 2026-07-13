@@ -1,0 +1,65 @@
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+*.log
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Go build outputs
+bin/
+build/
+dist/
+/prtp
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.coverprofile
+
+# Web build outputs (if added later)
+node_modules/
+web/dist/
+web/.vite/
+web/.cache/
+
+# Local test pipes/audio
+in.pcm
+out.pcm
+captures*/
+*.s16le
+*.g711
+*.pcap
+*.pcapng
+
+# Reverse-engineering / protocol scratch artifacts
+.ghidra_home/
+*.gpr
+*.rep/
+FP_DUMP.txt
+dumped_strings.txt
+arches.txt
+r2_arches.txt
+g711_response_curves.csv
+g711_response_curves.html
+
+# Archives and large binaries (uncomment if not versioning media/apks)
+# *.zip
+# *.apk
+# *.tar
+# *.tar.gz
