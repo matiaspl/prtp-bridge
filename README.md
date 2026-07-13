@@ -2,6 +2,13 @@
 
 `prtp-bridge` is the config-first Kroma PRTP gateway, Web UI, audio bridge, and local matrix-helper implementation.
 
+## Virtual panel
+
+The embedded Web UI mirrors the configured Kroma panel, including key state,
+audio controls, connection health, and live RX/TX statistics.
+
+![Kroma TP5024 virtual panel on NET3](docs/prtp-bridge-tp5024-virtualpanel.png)
+
 Run the bridge:
 
 ```bash
