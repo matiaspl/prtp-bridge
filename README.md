@@ -71,6 +71,25 @@ sudo nmcli connection up static-eth1
 
 Substitute the correct interface name and IP for your site.
 
+**DigiME UDP routing** — a multi-port bridge deployment requires one of these
+network layouts:
+
+- Keep the DigiME modules' existing destinations and add multiple IP addresses
+  (NIC aliases) to the same bridge interface, using one local IP address per
+  DigiME module. This allows every module to continue using the same UDP
+  destination port.
+- Use one bridge IP address and reconfigure the DigiME modules inside the matrix
+  so that each module sends to a different UDP destination port.
+
+Only one of these approaches is required. For the second approach, use
+[`scripts/digime_reconfig.py`](scripts/digime_reconfig.py); see
+[`docs/DIGIME_RECONFIG.md`](docs/DIGIME_RECONFIG.md). The script queries and
+backs up the original settings before deployment by default, writes a manifest
+and the planned RCI changes under `digime/backups/<timestamp>/`, supports
+restoring that backup, and does not modify the modules unless `--yes` is
+supplied. Preserve the backup directory until the installation has been
+validated.
+
 **TLS certificate** — the bridge requires a TLS cert/key pair.  Generate a
 self-signed cert for testing or install a real one:
 
