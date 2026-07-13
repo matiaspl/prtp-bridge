@@ -5,7 +5,7 @@ import (
 	"io/fs"
 )
 
-//go:embed app.js index.html
+//go:embed app.js index.html rx-worklet.js
 var embedded embed.FS
 
 func FS() fs.FS {

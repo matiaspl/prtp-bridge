@@ -1,7 +1,7 @@
 BIN_DIR := bin
 GO := go
 
-.PHONY: all build test jack-test clean
+.PHONY: all build test web-test jack-test clean
 
 all: build
 
@@ -12,6 +12,9 @@ build:
 
 test:
 	$(GO) test ./...
+
+web-test:
+	node --test scripts/rx_worklet_test.js
 
 jack-test:
 	KROMA_JACK_INTEGRATION=1 $(GO) test ./internal/prtpbridge/audio -run JACK -count=1 -v

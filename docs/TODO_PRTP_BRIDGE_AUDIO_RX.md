@@ -4,9 +4,9 @@ This tracks future RX audio-quality work for `prtp-bridge`.
 
 ## Current Finding
 
-- The UI RX VU meter is fed from decoded PRTP PCM before browser playback resampling.
-- The observed VU movement is therefore not explained by the browser or JACK playback resampler.
-- The current RX playback resamplers are still linear interpolators, and measured response for 8333 Hz to playback-rate conversion shows high-frequency droop. This is an audible-quality concern, not the direct cause of a pre-resampler VU reading.
+- The browser UI RX VU meter is fed from samples leaving the adaptive AudioWorklet and is delayed by the browser-reported output timing when available. It therefore follows rendered browser audio rather than decoded packet arrival.
+- Browser RX starts at about 92 ms for network audio and 61 ms for frontend loopback, catches up at up to 1.03x, removes verified leading silence, and enforces a 350 ms hard queue ceiling.
+- The current RX playback resamplers are still linear interpolators, and measured response for 8333 Hz to playback-rate conversion shows high-frequency droop. This remains an audible-quality concern independent of the rendered VU timing.
 - Custom G.711 decode is memoryless and flat for steady sine roundtrips in the tested range. The NET3 TX map behaves like a constant gain shift, not a frequency-shaped filter.
 
 ## TODO

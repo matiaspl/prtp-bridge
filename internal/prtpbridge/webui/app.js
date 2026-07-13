@@ -95,14 +95,15 @@
   let rxWorkletLoaded = false;
   let rxWorkletNode = null;
   let rxResampler = null;
-  const playbackStartDelaySec = 0.08;
-  const rxAdaptiveMinSec = 0.10;
-  const rxAdaptiveInitialSec = 0.24;
-  const rxAdaptiveMaxSec = 0.85;
-  const rxAdaptiveHardMaxSec = 1.20;
+  const rxAdaptiveMinPackets = 2;
+  const rxAdaptiveNetworkPackets = 3;
+  const rxAdaptiveLoopbackPackets = 2;
+  const rxAdaptiveMaxPackets = 8;
+  const rxAdaptiveHardMaxSec = 0.35;
   const scheduleIntervalMs = 5;
+  const renderedVuTimers = new Set();
   const rxAdaptive = {
-    targetSec: rxAdaptiveInitialSec,
+    targetSec: rxAdaptiveNetworkPackets * 256 / 8333,
     lastArrivalMs: 0,
     frameSec: 256 / 8333,
     lateEWMA: 0,
@@ -112,6 +113,9 @@
     bufferedSec: 0,
     underruns: 0,
     droppedFrames: 0,
+    silenceTrimmedFrames: 0,
+    emergencyTrimmedFrames: 0,
+    playbackRate: 1,
     mode: 'scheduler',
   };
   const vuFloorDb = -60;
@@ -912,14 +916,61 @@
   }
 
   function queueVu(route, samples) {
+    const stats = sampleStats(samples);
+    queueVuStats(route, stats.rms, stats.peak);
+  }
+
+  function queueVuStats(route, rms, peak) {
     const state = vu[route];
     if (!state) return;
-    const stats = sampleStats(samples);
-    state.db = levelToDb(stats.rms);
+    state.db = levelToDb(rms || 0);
     state.target = dbToMeter(state.db);
-    state.peak = Math.max(state.peak, dbToMeter(levelToDb(stats.peak)));
+    state.peak = Math.max(state.peak, dbToMeter(levelToDb(peak || 0)));
     state.updatedAt = performance.now();
     if (!vuAnim) vuAnim = requestAnimationFrame(renderVuMeters);
+  }
+
+  function scheduleRenderedVu(msg) {
+    if (!ctx) return;
+    let delayMs = 0;
+    if (Number.isFinite(msg.renderedFrame) && msg.renderedFrame > 0 && typeof ctx.getOutputTimestamp === 'function') {
+      try {
+        const stamp = ctx.getOutputTimestamp();
+        const renderedAt = msg.renderedFrame / ctx.sampleRate;
+        if (Number.isFinite(stamp?.contextTime)) delayMs = Math.max(0, (renderedAt - stamp.contextTime) * 1000);
+      } catch {}
+    }
+    if (!delayMs) {
+      const base = Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0;
+      const output = Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0;
+      delayMs = Math.max(base, output) * 1000;
+    }
+    const timer = window.setTimeout(() => {
+      renderedVuTimers.delete(timer);
+      if (rxEnabled) queueVuStats('rx', msg.rms || 0, msg.peak || 0);
+    }, Math.min(1000, delayMs));
+    renderedVuTimers.add(timer);
+  }
+
+  function clearRenderedVuTimers() {
+    for (const timer of renderedVuTimers) window.clearTimeout(timer);
+    renderedVuTimers.clear();
+  }
+
+  function updateRxAudioStats() {
+    const set = (id, value) => { const el = $(id); if (el) el.textContent = value; };
+    const outputMs = ctx
+      ? Math.max(Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0, Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0) * 1000
+      : 0;
+    set('statRxAudioMode', rxAdaptive.mode);
+    set('statRxBuffer', `${Math.round(rxAdaptive.bufferedSec * 1000)}/${Math.round(rxAdaptive.targetSec * 1000)} ms`);
+    set('statRxRate', `${rxAdaptive.playbackRate.toFixed(3)}x`);
+    set('statRxUnderruns', String(rxAdaptive.underruns));
+    const audioRate = ctx?.sampleRate || 48000;
+    const silenceTrimMs = Math.round(rxAdaptive.silenceTrimmedFrames * 1000 / audioRate);
+    const emergencyTrimMs = Math.round(rxAdaptive.emergencyTrimmedFrames * 1000 / audioRate);
+    set('statRxTrims', `${silenceTrimMs}/${emergencyTrimMs} ms`);
+    set('statOutputLatency', `${Math.round(outputMs)} ms`);
   }
 
   function resetVu(route) {
@@ -983,16 +1034,22 @@
     return Math.max(lo, Math.min(hi, v));
   }
 
+  function rxBaseTargetPackets() {
+    return frontendLoopbackEnabled() ? rxAdaptiveLoopbackPackets : rxAdaptiveNetworkPackets;
+  }
+
   function rxAudioLatencyFloorSec() {
-    const base = ctx && Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0;
-    const output = ctx && Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0;
-    return clampValue(base + output + 0.06, rxAdaptiveMinSec, 0.20);
+    return rxAdaptiveMinPackets * rxAdaptive.frameSec;
+  }
+
+  function rxPlaybackStartDelaySec() {
+    return Math.max(0.02, rxAdaptive.frameSec * (frontendLoopbackEnabled() ? 1 : 2));
   }
 
   function resetRxAdaptive() {
-    rxAdaptive.targetSec = rxAdaptiveInitialSec;
     rxAdaptive.lastArrivalMs = 0;
     rxAdaptive.frameSec = (remoteCfg.frame_samples || 256) / (remoteCfg.sample_rate || 8333);
+    rxAdaptive.targetSec = rxBaseTargetPackets() * rxAdaptive.frameSec;
     rxAdaptive.lateEWMA = 0;
     rxAdaptive.peakLateSec = 0;
     rxAdaptive.underrunBoostSec = 0;
@@ -1000,6 +1057,10 @@
     rxAdaptive.bufferedSec = 0;
     rxAdaptive.underruns = 0;
     rxAdaptive.droppedFrames = 0;
+    rxAdaptive.silenceTrimmedFrames = 0;
+    rxAdaptive.emergencyTrimmedFrames = 0;
+    rxAdaptive.playbackRate = 1;
+    updateRxAudioStats();
   }
 
   function observeRxArrival(sampleCount, sampleRate) {
@@ -1017,10 +1078,16 @@
     rxAdaptive.underrunBoostSec *= 0.997;
 
     const floor = rxAudioLatencyFloorSec();
+    const basePackets = rxBaseTargetPackets();
+    const jitterHeadroom = rxAdaptive.lateEWMA * 3.5 + rxAdaptive.peakLateSec * 1.4 + rxAdaptive.underrunBoostSec;
+    const extraPackets = jitterHeadroom > rxAdaptive.frameSec * 0.25
+      ? Math.ceil(jitterHeadroom / rxAdaptive.frameSec)
+      : 0;
+    const desiredPackets = basePackets + extraPackets;
     const desired = clampValue(
-      floor + rxAdaptive.lateEWMA * 3.5 + rxAdaptive.peakLateSec * 1.4 + rxAdaptive.underrunBoostSec,
+      desiredPackets * rxAdaptive.frameSec,
       floor,
-      rxAdaptiveMaxSec
+      rxAdaptiveMaxPackets * rxAdaptive.frameSec
     );
     const alpha = desired > rxAdaptive.targetSec ? 0.35 : 0.015;
     rxAdaptive.targetSec += (desired - rxAdaptive.targetSec) * alpha;
@@ -1029,32 +1096,52 @@
   function postRxWorkletConfig(force = false) {
     if (!rxWorkletNode || !ctx) return;
     const targetFrames = Math.max(128, Math.round(rxAdaptive.targetSec * ctx.sampleRate));
-    const maxFrames = Math.max(
-      targetFrames * 2,
-      Math.round(Math.min(rxAdaptiveHardMaxSec, Math.max(rxAdaptive.targetSec + 0.35, rxAdaptive.targetSec * 2.4)) * ctx.sampleRate)
-    );
-    if (!force && Math.abs(rxAdaptive.targetSec - rxAdaptive.lastPostedTargetSec) < 0.015) return;
+    const packetFrames = Math.max(128, Math.round(rxAdaptive.frameSec * ctx.sampleRate));
+    const maxFrames = Math.max(targetFrames, Math.round(rxAdaptiveMaxPackets * rxAdaptive.frameSec * ctx.sampleRate));
+    const hardMaxFrames = Math.max(maxFrames, Math.round(rxAdaptiveHardMaxSec * ctx.sampleRate));
+    if (!force && Math.abs(rxAdaptive.targetSec - rxAdaptive.lastPostedTargetSec) < rxAdaptive.frameSec * 0.5) return;
     rxAdaptive.lastPostedTargetSec = rxAdaptive.targetSec;
-    rxWorkletNode.port.postMessage({ type: 'config', targetFrames, maxFrames });
+    rxWorkletNode.port.postMessage({
+      type: 'config',
+      targetFrames,
+      packetFrames,
+      maxFrames,
+      hardMaxFrames,
+      silenceThreshold: Math.pow(10, -48 / 20),
+    });
+    updateRxAudioStats();
   }
 
   function handleRxWorkletMessage(ev) {
     const msg = ev.data || {};
     if (msg.type === 'underrun') {
       rxAdaptive.underruns += 1;
-      rxAdaptive.underrunBoostSec = clampValue(rxAdaptive.underrunBoostSec + 0.08, 0, 0.35);
-      rxAdaptive.targetSec = clampValue(rxAdaptive.targetSec + 0.06, rxAudioLatencyFloorSec(), rxAdaptiveMaxSec);
+      rxAdaptive.underrunBoostSec = clampValue(
+        rxAdaptive.underrunBoostSec + rxAdaptive.frameSec,
+        0,
+        rxAdaptive.frameSec * (rxAdaptiveMaxPackets - rxBaseTargetPackets())
+      );
+      rxAdaptive.targetSec = clampValue(
+        rxAdaptive.targetSec + rxAdaptive.frameSec,
+        rxAudioLatencyFloorSec(),
+        rxAdaptiveMaxPackets * rxAdaptive.frameSec
+      );
       postRxWorkletConfig(true);
     } else if (msg.type === 'stats') {
       const rate = ctx?.sampleRate || 48000;
       rxAdaptive.bufferedSec = (msg.bufferedFrames || 0) / rate;
-      rxAdaptive.droppedFrames = msg.droppedFrames || rxAdaptive.droppedFrames;
+      rxAdaptive.droppedFrames = msg.droppedFrames ?? rxAdaptive.droppedFrames;
+      rxAdaptive.silenceTrimmedFrames = msg.silenceTrimmedFrames ?? rxAdaptive.silenceTrimmedFrames;
+      rxAdaptive.emergencyTrimmedFrames = msg.emergencyTrimmedFrames ?? rxAdaptive.emergencyTrimmedFrames;
+      rxAdaptive.playbackRate = msg.playbackRate || 1;
+      updateRxAudioStats();
+    } else if (msg.type === 'meter') {
+      scheduleRenderedVu(msg);
     }
   }
 
   function enqueueRxPCM(pcm, sampleRate) {
     if (!pcm || !pcm.length) return;
-    queueVu('rx', pcm);
     const rate = sampleRate || remoteCfg.sample_rate || 16000;
     observeRxArrival(pcm.length, rate);
     let res = null;
@@ -1072,8 +1159,8 @@
     } else {
       rxQueue.push({ pcm, sampleRate: rate });
     }
-    const maxBufferSec = clampValue(rxAdaptive.targetSec * 2.4, rxAdaptive.targetSec + 0.12, rxAdaptiveHardMaxSec);
-    const targetBufferSec = clampValue(rxAdaptive.targetSec * 1.15, rxAdaptive.targetSec, rxAdaptiveMaxSec);
+    const maxBufferSec = rxAdaptiveHardMaxSec;
+    const targetBufferSec = rxAdaptive.targetSec;
     if (rxQueuedSeconds() > maxBufferSec) {
       while (rxQueuedSeconds() > targetBufferSec && rxQueue.length > 1) rxQueue.shift();
     }
@@ -1838,6 +1925,18 @@
     }
   }
 
+  function ensureAudioContextInstance() {
+    if (ctx) return ctx;
+    const AudioContextType = window.AudioContext || window.webkitAudioContext;
+    try {
+      ctx = new AudioContextType({ latencyHint: 'interactive' });
+    } catch {
+      ctx = new AudioContextType();
+    }
+    updateRxAudioStats();
+    return ctx;
+  }
+
   function resampleRxF32(input, inRate, outRate) {
     if (!rxResampler || rxResampler.inRate !== inRate || rxResampler.outRate !== outRate) {
       rxResampler = makeF32StreamResampler(inRate, outRate);
@@ -2076,7 +2175,7 @@
     const defaultSrIn = remoteCfg.sample_rate || 16000;
     // Keep playhead close to the audio clock; do not prefill with silence,
     // because that directly adds latency before the first real packet.
-    const minStart = ctx.currentTime + playbackStartDelaySec;
+    const minStart = ctx.currentTime + rxPlaybackStartDelaySec();
     if (playHead < minStart) playHead = minStart;
     while ((playHead - ctx.currentTime) < rxAdaptive.targetSec) {
       if (!rxQueue.length) break;
@@ -2090,7 +2189,18 @@
       scheduledRxSources.add(src);
       src.onended = () => scheduledRxSources.delete(src);
       const dur = res.length / srOut;
+      const startAt = playHead;
       src.start(playHead);
+      const stats = sampleStats(res);
+      const outputDelay = Math.max(
+        Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : 0,
+        Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0
+      );
+      const timer = window.setTimeout(() => {
+        renderedVuTimers.delete(timer);
+        if (rxEnabled && !rxWorkletNode) queueVuStats('rx', stats.rms, stats.peak);
+      }, Math.max(0, (startAt - ctx.currentTime + outputDelay) * 1000));
+      renderedVuTimers.add(timer);
       playHead += dur;
     }
   }
@@ -2107,145 +2217,24 @@
     rxQueue = [];
     resetRxResampler();
     stopScheduledRxSources();
+    clearRenderedVuTimers();
     if (rxWorkletNode) {
       rxWorkletNode.port.postMessage({ type: 'reset' });
       postRxWorkletConfig(true);
     }
-    if (ctx) playHead = ctx.currentTime + playbackStartDelaySec;
+    if (ctx) playHead = ctx.currentTime + rxPlaybackStartDelaySec();
   }
 
   async function ensureRxWorklet() {
     if (!ctx?.audioWorklet || typeof AudioWorkletNode !== 'function') return false;
     if (rxWorkletLoaded) return true;
-    const processor = `
-class KromaRxJitterBuffer extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this.capacity = Math.max(16384, Math.ceil(sampleRate * 3));
-    this.buffer = new Float32Array(this.capacity);
-    this.read = 0;
-    this.write = 0;
-    this.count = 0;
-    this.targetFrames = Math.round(sampleRate * 0.24);
-    this.maxFrames = Math.round(sampleRate * 0.85);
-    this.started = false;
-    this.underruns = 0;
-    this.droppedFrames = 0;
-    this.reportCountdown = 0;
-    this.port.onmessage = (ev) => this.handleMessage(ev.data || {});
-  }
-
-  handleMessage(msg) {
-    if (msg.type === 'config') {
-      if (Number.isFinite(msg.targetFrames)) {
-        this.targetFrames = Math.max(128, Math.min(this.capacity, Math.floor(msg.targetFrames)));
-      }
-      if (Number.isFinite(msg.maxFrames)) {
-        this.maxFrames = Math.max(this.targetFrames, Math.min(this.capacity, Math.floor(msg.maxFrames)));
-      }
-      if (this.count > this.maxFrames) this.dropOldest(this.count - this.maxFrames);
-    } else if (msg.type === 'audio' && msg.data && msg.data.length) {
-      this.enqueue(msg.data);
-    } else if (msg.type === 'reset') {
-      this.reset();
-    }
-  }
-
-  reset() {
-    this.read = 0;
-    this.write = 0;
-    this.count = 0;
-    this.started = false;
-    this.report();
-  }
-
-  dropOldest(frames) {
-    const n = Math.max(0, Math.min(this.count, Math.floor(frames)));
-    if (!n) return;
-    this.read = (this.read + n) % this.capacity;
-    this.count -= n;
-    this.droppedFrames += n;
-  }
-
-  enqueue(input) {
-    let data = input;
-    if (data.length > this.capacity) {
-      this.droppedFrames += data.length - this.capacity;
-      data = data.subarray(data.length - this.capacity);
-    }
-    const overflow = this.count + data.length - this.capacity;
-    if (overflow > 0) this.dropOldest(overflow);
-    const overMax = this.count + data.length - this.maxFrames;
-    if (overMax > 0) this.dropOldest(overMax);
-    let offset = 0;
-    while (offset < data.length) {
-      const take = Math.min(data.length - offset, this.capacity - this.write);
-      this.buffer.set(data.subarray(offset, offset + take), this.write);
-      this.write = (this.write + take) % this.capacity;
-      this.count += take;
-      offset += take;
-    }
-  }
-
-  report() {
-    this.port.postMessage({
-      type: 'stats',
-      bufferedFrames: this.count,
-      targetFrames: this.targetFrames,
-      underruns: this.underruns,
-      droppedFrames: this.droppedFrames,
-      active: this.started,
-    });
-  }
-
-  process(_, outputs) {
-    const out = outputs[0] && outputs[0][0];
-    if (!out) return true;
-    if (!this.started && this.count < this.targetFrames) {
-      out.fill(0);
-      this.reportCountdown -= out.length;
-      if (this.reportCountdown <= 0) {
-        this.reportCountdown = Math.floor(sampleRate / 4);
-        this.report();
-      }
-      return true;
-    }
-    this.started = true;
-    let i = 0;
-    for (; i < out.length; i++) {
-      if (this.count <= 0) break;
-      out[i] = this.buffer[this.read];
-      this.read = (this.read + 1) % this.capacity;
-      this.count--;
-    }
-    if (i < out.length) {
-      out.fill(0, i);
-      if (this.started) {
-        this.started = false;
-        this.underruns++;
-        this.port.postMessage({ type: 'underrun', underruns: this.underruns });
-      }
-    }
-    this.reportCountdown -= out.length;
-    if (this.reportCountdown <= 0) {
-      this.reportCountdown = Math.floor(sampleRate / 4);
-      this.report();
-    }
-    return true;
-  }
-}
-registerProcessor('kroma-rx-jitter-buffer', KromaRxJitterBuffer);
-`;
-    const url = URL.createObjectURL(new Blob([processor], { type: 'application/javascript' }));
     try {
-      await ctx.audioWorklet.addModule(url);
+      await ctx.audioWorklet.addModule('./rx-worklet.js');
       rxWorkletLoaded = true;
       return true;
     } catch (err) {
       trace('RX AudioWorklet unavailable:', err?.message || err);
       return false;
-    } finally {
-      URL.revokeObjectURL(url);
     }
   }
 
@@ -2267,6 +2256,7 @@ registerProcessor('kroma-rx-jitter-buffer', KromaRxJitterBuffer);
     rxWorkletNode.port.onmessage = handleRxWorkletMessage;
     connectRxNode(rxWorkletNode);
     rxAdaptive.mode = 'worklet';
+    updateRxAudioStats();
     postRxWorkletConfig(true);
     if (rxQueue.length) {
       const pending = rxQueue.splice(0);
@@ -2292,7 +2282,7 @@ registerProcessor('kroma-rx-jitter-buffer', KromaRxJitterBuffer);
 
   async function startRx() {
     if (rxEnabled) return true;
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ensureAudioContextInstance();
     await applyBrowserAudioOutput({ logResult: selectedBrowserOutputID() !== 'default' });
     rxEnabled = true;
     resetRxAdaptive();
@@ -2308,7 +2298,7 @@ registerProcessor('kroma-rx-jitter-buffer', KromaRxJitterBuffer);
         log('RX start failed:', err?.message || err);
         return false;
       }
-      playHead = ctx.currentTime + playbackStartDelaySec;
+      playHead = ctx.currentTime + rxPlaybackStartDelaySec();
     }
     if (ctx.state !== 'running') {
       rxEnabled = false;
@@ -2320,6 +2310,7 @@ registerProcessor('kroma-rx-jitter-buffer', KromaRxJitterBuffer);
     }
     if (!(await startRxWorklet())) {
       rxAdaptive.mode = 'scheduler';
+      updateRxAudioStats();
       if (scheduleTimer) { clearInterval(scheduleTimer); scheduleTimer = null; }
       scheduleTimer = setInterval(scheduleAudio, scheduleIntervalMs);
       scheduleAudio();
@@ -2624,7 +2615,7 @@ registerProcessor('kroma-mic-capture', KromaMicCapture);
       setMicEnableNeeded(true, micUnavailableMessage());
       return false;
     }
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ensureAudioContextInstance();
     if (ctx.state === 'suspended') await ctx.resume();
     const inputID = selectedBrowserInputID();
     browserAudio.selected.input = inputID;
@@ -2882,7 +2873,14 @@ registerProcessor('kroma-mic-capture', KromaMicCapture);
   $('btnDisconnect').onclick = disconnect;
   $('btnFloatingPanel').onclick = openFloatingPanel;
   $('btnStartRx').onclick = startRx; $('btnStopRx').onclick = stopRx;
-  $('frontendLoopback').onchange = updateAudioControls;
+  $('frontendLoopback').onchange = () => {
+    if (rxEnabled) {
+      resetRxAdaptive();
+      resetRxPlaybackClock();
+      postRxWorkletConfig(true);
+    }
+    updateAudioControls();
+  };
   $('btnBrowserAudioRefresh').onclick = () => refreshBrowserAudioDevices();
   $('browserCaptureDevice').onchange = () => {
     markAudioSettingsDirty();
@@ -2953,6 +2951,7 @@ registerProcessor('kroma-mic-capture', KromaMicCapture);
     navigator.mediaDevices.addEventListener('devicechange', () => refreshBrowserAudioDevices({ logErrors: false }));
   }
   updateAudioControls();
+  updateRxAudioStats();
   updateFloatingButton();
   resetVu();
   updatePanelHeader(profileModel, panel.n);

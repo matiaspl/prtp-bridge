@@ -35,6 +35,14 @@ is derived from the selected config instance, for example
 `matrix_port`. Override it with `audio.client_name` only when an instance needs
 a fixed custom JACK name.
 
+Browser RX uses an adaptive low-latency AudioWorklet buffer. It starts at three
+PRTP frames (about 92 ms at 8,333 Hz) for network audio and two frames (about
+61 ms) for frontend loopback. The worklet gently adjusts consumption between
+0.995x and 1.03x, removes verified buffered silence, and caps queued audio at
+350 ms. The Stats panel reports current/target buffer time, catch-up rate,
+underruns, trims, and browser-reported output latency. Bluetooth or an external
+audio device may add latency beyond the worklet buffer.
+
 Matrix operations go through the helper over a Unix-domain HTTP socket:
 
 - `GET /healthz`
