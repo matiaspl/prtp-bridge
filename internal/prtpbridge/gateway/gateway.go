@@ -1830,7 +1830,7 @@ func emitInfo(h *hub, payload []byte, sendPRTP func([]byte), sendPRTPNormal func
 		h.broadcastJSON(map[string]any{"type": "prtp_info", "kind": "ping"})
 		if sendPRTP != nil {
 			sendPRTP(prtp.BuildFrame([]byte{0x41}))
-			if sentSync != nil && !*sentSync {
+			if sentSync != nil && !*sentSync && emulationStateSyncEnabled(emu) {
 				sendPRTP(prtp.BuildFrame([]byte{0x53}))
 				*sentSync = true
 			}
@@ -1923,6 +1923,10 @@ func emitInfo(h *hub, payload []byte, sendPRTP func([]byte), sendPRTPNormal func
 	default:
 		h.broadcastJSON(map[string]any{"type": "prtp_info", "kind": "i_unknown", "sub": int(sub)})
 	}
+}
+
+func emulationStateSyncEnabled(emu *prtp.EmulationProfile) bool {
+	return emu == nil || emu.TypeCode != prtp.TypeBP7100
 }
 
 func emulationDeviceAuto(device string) bool {

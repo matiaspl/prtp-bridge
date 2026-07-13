@@ -120,6 +120,57 @@ func TestRFrameIsAcknowledged(t *testing.T) {
 	}
 }
 
+func TestBP7100PingIsAcknowledgedWithoutSynchronizingState(t *testing.T) {
+	h := newHub()
+	emu, err := prtp.NewEmulationProfile("bp7100", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent [][]byte
+	sentSync := false
+	emitInfo(h, []byte{0x50}, func(frame []byte) {
+		sent = append(sent, append([]byte(nil), frame...))
+	}, nil, &sentSync, emu, false)
+	emitInfo(h, []byte{0x50}, func(frame []byte) {
+		sent = append(sent, append([]byte(nil), frame...))
+	}, nil, &sentSync, emu, false)
+	if len(sent) != 2 {
+		t.Fatalf("sent %d frames, want one ACK per ping and no sync", len(sent))
+	}
+	if want := []byte{0x41, 0x4B, 0xFF}; !bytes.Equal(sent[0], want) {
+		t.Fatalf("first ACK frame = % X, want % X", sent[0], want)
+	} else if !bytes.Equal(sent[1], want) {
+		t.Fatalf("second ACK frame = % X, want % X", sent[1], want)
+	}
+	if sentSync {
+		t.Fatal("BP7100 state was marked synchronized")
+	}
+}
+
+func TestPanelPingSynchronizesStateOnce(t *testing.T) {
+	h := newHub()
+	emu, err := prtp.NewEmulationProfile("tp5024", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent [][]byte
+	sentSync := false
+	send := func(frame []byte) {
+		sent = append(sent, append([]byte(nil), frame...))
+	}
+	emitInfo(h, []byte{0x50}, send, nil, &sentSync, emu, false)
+	emitInfo(h, []byte{0x50}, send, nil, &sentSync, emu, false)
+	if len(sent) != 3 {
+		t.Fatalf("sent %d frames, want ACK + sync + ACK", len(sent))
+	}
+	if want := []byte{0x53, 0xC5, 0xFF}; !bytes.Equal(sent[1], want) {
+		t.Fatalf("sync frame = % X, want % X", sent[1], want)
+	}
+	if !sentSync {
+		t.Fatal("panel state was not marked synchronized")
+	}
+}
+
 func TestRXFragmentAssemblerRecoversDigiSplitPacket(t *testing.T) {
 	packet := testAudioPacket(0x42)
 	addr := &net.UDPAddr{IP: net.ParseIP("192.168.7.203"), Port: 8087}
