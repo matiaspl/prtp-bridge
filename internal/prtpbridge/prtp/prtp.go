@@ -184,7 +184,7 @@ func NewEmulationProfile(device, name string, keyOverride int) (*EmulationProfil
 		p.Model = "BP7100"
 		p.Kind = "beltpack"
 		p.TypeCode = TypeBP7100
-		p.KeyCount = 4
+		p.KeyCount = 0
 	default:
 		return nil, fmt.Errorf("unknown emulated PRTP endpoint %q (expected tp5008, tp5012, tp5024, or bp7100)", device)
 	}
@@ -192,10 +192,10 @@ func NewEmulationProfile(device, name string, keyOverride int) (*EmulationProfil
 	if keyOverride < 0 || keyOverride > 120 {
 		return nil, fmt.Errorf("simulate keys must be in range 0-120")
 	}
-	if keyOverride > 0 {
+	if keyOverride > 0 && p.TypeCode != TypeBP7100 {
 		p.KeyCount = keyOverride
 	}
-	if p.KeyCount <= 0 {
+	if p.KeyCount <= 0 && p.TypeCode != TypeBP7100 {
 		return nil, fmt.Errorf("emulated PRTP endpoint must expose at least one key")
 	}
 	if strings.TrimSpace(name) == "" {

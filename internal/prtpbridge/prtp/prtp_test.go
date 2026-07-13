@@ -94,6 +94,22 @@ func TestEmulationProfileAndIdentity(t *testing.T) {
 	}
 }
 
+func TestBP7100ProfileHasNoKeys(t *testing.T) {
+	p, err := NewEmulationProfile("bp7100", "", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.KeyCount != 0 {
+		t.Fatalf("BP7100 key count = %d, want 0", p.KeyCount)
+	}
+	if len(p.Labels) != 0 {
+		t.Fatalf("BP7100 labels = %#v, want none", p.Labels)
+	}
+	if groups := BitmapGroupCount(p.KeyCount); groups != 0 {
+		t.Fatalf("BP7100 bitmap groups = %d, want 0", groups)
+	}
+}
+
 func TestEmulationDeviceForTypeCode(t *testing.T) {
 	tests := []struct {
 		code int

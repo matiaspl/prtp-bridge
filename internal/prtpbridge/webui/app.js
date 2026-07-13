@@ -136,7 +136,7 @@
     TP5008: 8,
     TP5012: 12,
     TP5024: 24,
-    BP7100: 4,
+    BP7100: 0,
   };
   const activeKeyPointers = new Map();
   const monostableHoldMs = 300;
@@ -800,7 +800,7 @@
       conn.classList.toggle('ok', source?.classList.contains('ok'));
       conn.classList.toggle('warn', !source?.classList.contains('ok'));
     }
-    if (profile) profile.textContent = `${profileModel || 'Panel'} / ${panel.n} ${panel.n === 1 ? 'key' : 'keys'}`;
+    if (profile) profile.textContent = `${profileModel || 'Panel'} / ${formatKeyCount(panel.n)}`;
     updateFloatingStats();
   }
 
@@ -1188,10 +1188,18 @@
 
   function keyCountForModel(model, fallback) {
     const token = String(model || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (profileKeyCounts[token]) return profileKeyCounts[token];
+    if (Object.prototype.hasOwnProperty.call(profileKeyCounts, token)) return profileKeyCounts[token];
     const found = Object.keys(profileKeyCounts).find((name) => token.startsWith(name));
     if (found) return profileKeyCounts[found];
     return fallback;
+  }
+
+  function isKeylessModel(model) {
+    return keyCountForModel(model, -1) === 0;
+  }
+
+  function formatKeyCount(keys) {
+    return keys === 0 ? 'no keys' : `${keys} ${keys === 1 ? 'key' : 'keys'}`;
   }
 
   function defaultPanelLabel(index) {
@@ -1206,6 +1214,7 @@
   }
 
   function boundedPanelSize(n) {
+    if (isKeylessModel(profileModel)) return 0;
     const limit = activeKeyLimit();
     return limit > 0 ? Math.min(n, limit) : n;
   }
@@ -1236,7 +1245,7 @@
     const count = $('buttonCount');
     if (title) title.textContent = panelTargetTitle() || `${label} Panel`;
     if (profile) profile.textContent = label;
-    if (count) count.textContent = `${keys} ${keys === 1 ? 'key' : 'keys'}`;
+    if (count) count.textContent = formatKeyCount(keys);
     updateFloatingHeader();
   }
 
@@ -1247,7 +1256,7 @@
   }
 
   function resizePanel(n) {
-    n = Math.max(1, n | 0);
+    n = Math.max(0, n | 0);
     const old = panel.n;
     const resizeBool = (arr) => {
       arr.length = n;
@@ -1271,11 +1280,11 @@
     const rawKeys = (msg.keys ?? msg.emulate_keys ?? msg.simulate_keys ?? 0) | 0;
     const keys = keyCountForModel(model, rawKeys || panel.n) | 0;
     if (model) profileModel = String(model).toUpperCase();
-    if (keys > 0) {
+    if (keys > 0 || isKeylessModel(model)) {
       resizePanel(keys);
     }
     updatePanelHeader(profileModel || model, panel.n);
-    if (model && (msg.type === 'prtp_emulation' || msg.type === 'prtp_simulation')) log('Emulation profile', model, name ? `(${name})` : '', `${keys || panel.n} keys`);
+    if (model && (msg.type === 'prtp_emulation' || msg.type === 'prtp_simulation')) log('Emulation profile', model, name ? `(${name})` : '', formatKeyCount(panel.n));
   }
 
   function renderPanel(full=false) {
