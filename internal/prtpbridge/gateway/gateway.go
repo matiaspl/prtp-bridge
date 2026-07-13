@@ -1340,8 +1340,17 @@ func Serve(ctx context.Context, cfg config.Config) error {
 									payload, ok := prtp.DecodeFrame(frame)
 									if !ok {
 										atomic.AddUint64(&prtpCRCErrors, 1)
+										curEmu, _ := getEmulation()
+										response := invalidPRTPFrameResponse(curEmu)
 										if cfg.Debug.PRTP {
-											log.Printf("PRTP inbound frame raw=[%s] CRC mismatch expect=%02X (discarding)", prtp.HexBytes(rawPayload), prtp.CRC(rawPayload))
+											action := "discarding"
+											if len(response) > 0 {
+												action = "requesting retransmit"
+											}
+											log.Printf("PRTP inbound frame raw=[%s] CRC mismatch expect=%02X (%s)", prtp.HexBytes(rawPayload), prtp.CRC(rawPayload), action)
+										}
+										if len(response) > 0 {
+											sendPRTPFrame(response)
 										}
 										prtpAcc = prtpAcc[:0]
 										continue
@@ -1927,6 +1936,13 @@ func emitInfo(h *hub, payload []byte, sendPRTP func([]byte), sendPRTPNormal func
 
 func emulationStateSyncEnabled(emu *prtp.EmulationProfile) bool {
 	return emu == nil || emu.TypeCode != prtp.TypeBP7100
+}
+
+func invalidPRTPFrameResponse(emu *prtp.EmulationProfile) []byte {
+	if emu == nil || emu.TypeCode != prtp.TypeBP7100 {
+		return nil
+	}
+	return prtp.BuildFrame([]byte{0x4E})
 }
 
 func emulationDeviceAuto(device string) bool {

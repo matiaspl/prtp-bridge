@@ -171,6 +171,26 @@ func TestPanelPingSynchronizesStateOnce(t *testing.T) {
 	}
 }
 
+func TestBP7100InvalidFrameRequestsRetransmit(t *testing.T) {
+	emu, err := prtp.NewEmulationProfile("bp7100", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := invalidPRTPFrameResponse(emu), []byte{0x4E, 0xDD, 0xFF}; !bytes.Equal(got, want) {
+		t.Fatalf("invalid-frame response = % X, want NACK % X", got, want)
+	}
+}
+
+func TestPanelInvalidFrameDoesNotChangeExistingBehavior(t *testing.T) {
+	emu, err := prtp.NewEmulationProfile("tp5024", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := invalidPRTPFrameResponse(emu); got != nil {
+		t.Fatalf("panel invalid-frame response = % X, want none", got)
+	}
+}
+
 func TestRXFragmentAssemblerRecoversDigiSplitPacket(t *testing.T) {
 	packet := testAudioPacket(0x42)
 	addr := &net.UDPAddr{IP: net.ParseIP("192.168.7.203"), Port: 8087}
