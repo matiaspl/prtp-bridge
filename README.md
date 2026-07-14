@@ -57,6 +57,13 @@ until the native single-crosspoint write frame is proven byte-for-byte.
 The installer script at `deploy/systemd/install-prtp-bridge.sh` handles a
 full install or upgrade on a Linux host running systemd.
 
+The bridge can run either on a conventional Linux VM or on a Raspberry Pi. Both
+deployment types have been tested with the matrix integration. A Raspberry Pi
+is a practical option for a dedicated, compact bridge appliance; use a Linux
+image with systemd, provide an interface on the intercom network, and build the
+binary for the Pi's architecture. Build natively on the target when JACK audio
+support is required, as described below.
+
 ### Pre-requisites on the target host
 
 **Network** — the interface that carries `192.168.7.x` intercom traffic must
