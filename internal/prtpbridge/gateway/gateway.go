@@ -1340,8 +1340,7 @@ func Serve(ctx context.Context, cfg config.Config) error {
 									payload, ok := prtp.DecodeFrame(frame)
 									if !ok {
 										atomic.AddUint64(&prtpCRCErrors, 1)
-										curEmu, _ := getEmulation()
-										response := invalidPRTPFrameResponse(curEmu)
+										response := invalidPRTPFrameResponse()
 										if cfg.Debug.PRTP {
 											action := "discarding"
 											if len(response) > 0 {
@@ -1938,10 +1937,7 @@ func emulationStateSyncEnabled(emu *prtp.EmulationProfile) bool {
 	return emu == nil || emu.TypeCode != prtp.TypeBP7100
 }
 
-func invalidPRTPFrameResponse(emu *prtp.EmulationProfile) []byte {
-	if emu == nil || emu.TypeCode != prtp.TypeBP7100 {
-		return nil
-	}
+func invalidPRTPFrameResponse() []byte {
 	return prtp.BuildFrame([]byte{0x4E})
 }
 

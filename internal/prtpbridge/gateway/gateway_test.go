@@ -171,23 +171,16 @@ func TestPanelPingSynchronizesStateOnce(t *testing.T) {
 	}
 }
 
-func TestBP7100InvalidFrameRequestsRetransmit(t *testing.T) {
-	emu, err := prtp.NewEmulationProfile("bp7100", "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := invalidPRTPFrameResponse(emu), []byte{0x4E, 0xDD, 0xFF}; !bytes.Equal(got, want) {
-		t.Fatalf("invalid-frame response = % X, want NACK % X", got, want)
-	}
-}
-
-func TestPanelInvalidFrameDoesNotChangeExistingBehavior(t *testing.T) {
-	emu, err := prtp.NewEmulationProfile("tp5024", "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := invalidPRTPFrameResponse(emu); got != nil {
-		t.Fatalf("panel invalid-frame response = % X, want none", got)
+func TestAllPanelsRequestRetransmitForInvalidFrame(t *testing.T) {
+	for _, device := range []string{"tp5008", "tp5012", "tp5024", "bp7100"} {
+		t.Run(device, func(t *testing.T) {
+			if _, err := prtp.NewEmulationProfile(device, "", 0); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := invalidPRTPFrameResponse(), []byte{0x4E, 0xDD, 0xFF}; !bytes.Equal(got, want) {
+				t.Fatalf("invalid-frame response = % X, want NACK % X", got, want)
+			}
+		})
 	}
 }
 
