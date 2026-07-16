@@ -63,7 +63,7 @@ full install or upgrade on a Linux host running systemd.
 have a static IP configured before the bridge starts.  Using NetworkManager:
 
 ```bash
-# bind the TP-Link (or equivalent) dongle to the intercom subnet
+# bind the second NIC (e.g. a USB dongle) to the intercom subnet
 sudo nmcli connection add type ethernet con-name static-eth1 \
      ifname eth1 ip4 192.168.7.113/24
 sudo nmcli connection up static-eth1
